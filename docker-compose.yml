@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:15
+    container_name: matriz_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: 2409
+      POSTGRES_DB: matriz_riesgos
+    ports:
+      - "5432:5432"
+    networks:
+      - red-matriz
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/schema/db.sql:/docker-entrypoint-initdb.d/db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d matriz_riesgos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: matriz_api
+    ports:
+      - "4000:4000"
+    environment:
+      - DB_HOST=db
+      - DB_USER=admin
+      - DB_PASSWORD=2409
+      - DB_NAME=matriz_riesgos
+      - DB_PORT=5432
+      - JWT_SECRET=super_secreto_matriz_riesgos_2026_!
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - red-matriz
+
+networks:
+  red-matriz:
+    driver: bridge
+
+volumes:
+  pgdata:
