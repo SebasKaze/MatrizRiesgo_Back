@@ -14,10 +14,10 @@ RUN npm ci --omit=dev
 COPY . .
 
 # Variable de entorno por defecto para el puerto
-ENV PORT=4000
+#ENV PORT=4000
 
 # Exponer el puerto en el que corre Express
-EXPOSE 4000
+#EXPOSE 4000
 
 # Comando por defecto para iniciar la aplicación
 CMD ["node", "src/index.js"]
