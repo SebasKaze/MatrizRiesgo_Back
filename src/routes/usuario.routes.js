@@ -141,5 +141,187 @@ router.get('/estados', async (req, res) => {
 
 
 
+router.put('/empresas/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nombre_razon_social, rfc, sector, estado_id } = req.body;
+  if (!nombre_razon_social || !String(nombre_razon_social).trim()) {
+    return res.status(400).json({
+      message: 'El nombre o razón social de la empresa es obligatorio.',
+    });
+  }
+  try {
+    const query = `
+      UPDATE empresas
+      SET 
+        nombre_razon_social = $1,
+        rfc = $2,
+        sector = $3,
+        estado_id = $4
+      WHERE id = $5
+      RETURNING id, nombre_razon_social, rfc, sector, estado_id, fecha_registro
+    `;
+    const values = [
+      String(nombre_razon_social).trim(),
+      rfc ? String(rfc).trim().toUpperCase() : null,
+      sector ? String(sector).trim() : null,
+      estado_id ? Number(estado_id) : null,
+      Number(id),
+    ];
+    const { rows } = await pool.query(query, values);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Empresa no encontrada.' });
+    }
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar empresa:', error);
+    res.status(500).json({ message: 'Error interno al actualizar la empresa.' });
+  }
+});
+
+
+router.delete('/empresas/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rowCount, rows } = await pool.query(
+      'DELETE FROM empresas WHERE id = $1 RETURNING id, nombre_razon_social',
+      [Number(id)]
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ message: 'Empresa no encontrada.' });
+    }
+    res.json({
+      message: 'Empresa eliminada correctamente.',
+      deleted: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al eliminar empresa:', error);
+    res.status(500).json({ message: 'Error interno al eliminar la empresa.' });
+  }
+});
+
+router.get('/usuarios', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        u.id,
+        u.empresa_id,
+        e.nombre_razon_social AS empresa_nombre,
+        u.nombre,
+        u.correo,
+        u.tipo_rol,
+        u.fecha_creacion
+      FROM usuarios u
+      LEFT JOIN empresas e ON u.empresa_id = e.id
+      ORDER BY u.id ASC
+    `;
+    const { rows } = await pool.query(query);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error al obtener usuarios:', error);
+    res.status(500).json({ message: 'Error al obtener la lista de usuarios.' });
+  }
+});
+
+
+router.put('/usuarios/:id', async (req, res) => {
+  const { id } = req.params;
+  const { empresa_id, nombre, correo, tipo_rol, password, contrasena } = req.body;
+  const newPassword = (password || contrasena || '').trim();
+  if (!empresa_id || !nombre || !correo || !tipo_rol) {
+    return res.status(400).json({
+      message: 'Empresa, nombre, correo y rol son obligatorios.',
+    });
+  }
+  try {
+    // Validar que el correo no pertenezca a otro usuario distinto
+    const duplicateCheck = await pool.query(
+      'SELECT id FROM usuarios WHERE LOWER(correo) = LOWER($1) AND id <> $2',
+      [String(correo).trim(), Number(id)]
+    );
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(409).json({
+        message: 'El correo electrónico ya está en uso por otro usuario.',
+      });
+    }
+    let query;
+    let values;
+    if (newPassword.length > 0) {
+      const contrasenaHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+      query = `
+        UPDATE usuarios
+        SET 
+          empresa_id = $1,
+          nombre = $2,
+          correo = $3,
+          tipo_rol = $4,
+          contrasena_hash = $5
+        WHERE id = $6
+        RETURNING id, empresa_id, nombre, correo, tipo_rol, fecha_creacion
+      `;
+      values = [
+        Number(empresa_id),
+        String(nombre).trim(),
+        String(correo).trim().toLowerCase(),
+        String(tipo_rol).trim(),
+        contrasenaHash,
+        Number(id),
+      ];
+    } else {
+      query = `
+        UPDATE usuarios
+        SET 
+          empresa_id = $1,
+          nombre = $2,
+          correo = $3,
+          tipo_rol = $4
+        WHERE id = $5
+        RETURNING id, empresa_id, nombre, correo, tipo_rol, fecha_creacion
+      `;
+      values = [
+        Number(empresa_id),
+        String(nombre).trim(),
+        String(correo).trim().toLowerCase(),
+        String(tipo_rol).trim(),
+        Number(id),
+      ];
+    }
+    const { rows } = await pool.query(query, values);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar usuario:', error);
+    if (error.code === '23505') {
+      return res.status(409).json({
+        message: 'El correo electrónico ya está en uso por otro usuario.',
+      });
+    }
+    res.status(500).json({ message: 'Error interno al actualizar el usuario.' });
+  }
+});
+
+
+router.delete('/usuarios/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rowCount, rows } = await pool.query(
+      'DELETE FROM usuarios WHERE id = $1 RETURNING id, nombre, correo',
+      [Number(id)]
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+    res.json({
+      message: 'Usuario eliminado correctamente.',
+      deleted: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al eliminar usuario:', error);
+    res.status(500).json({ message: 'Error interno al eliminar el usuario.' });
+  }
+});
+
+
 
 export default router;

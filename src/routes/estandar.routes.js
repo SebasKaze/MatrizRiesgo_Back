@@ -179,4 +179,209 @@ router.post('/subestandares', async (req, res) => {
 });
 
 
+
+
+/**
+ * 1. PUT /api/estandares/:id
+ * Actualiza el código y la descripción de un Estándar en la tabla `estandar`
+ */
+router.put('/estandares/:id', async (req, res) => {
+  try {
+    const estandarId = Number(req.params.id);
+    if (isNaN(estandarId) || estandarId <= 0) {
+      return res.status(400).json({ message: 'ID de estándar inválido.' });
+    }
+
+    const { codigo_estandar, descripcion } = req.body;
+
+    if (!codigo_estandar || !String(codigo_estandar).trim()) {
+      return res.status(400).json({
+        message: 'El código del estándar es obligatorio.',
+      });
+    }
+
+    if (!descripcion || !String(descripcion).trim()) {
+      return res.status(400).json({
+        message: 'La descripción del estándar es obligatoria.',
+      });
+    }
+
+    const query = `
+      UPDATE estandar
+      SET
+        codigo_estandar = $1,
+        descripcion = $2
+      WHERE id = $3
+      RETURNING id, codigo_estandar, descripcion;
+    `;
+
+    const { rows } = await pool.query(query, [
+      String(codigo_estandar).trim(),
+      String(descripcion).trim(),
+      estandarId,
+    ]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: `No se encontró el estándar con ID #${estandarId}.`,
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Estándar actualizado correctamente.',
+      estandar: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al actualizar estándar:', error);
+    return res.status(500).json({
+      message: 'Error interno al actualizar el estándar en la base de datos.',
+    });
+  }
+});
+
+/**
+ * 2. DELETE /api/estandares/:id
+ * Elimina un Estándar de la tabla `estandar` (por ON DELETE CASCADE en bd.sql,
+ * también elimina sus subestándares y riesgos asociados)
+ */
+router.delete('/estandares/:id', async (req, res) => {
+  try {
+    const estandarId = Number(req.params.id);
+    if (isNaN(estandarId) || estandarId <= 0) {
+      return res.status(400).json({ message: 'ID de estándar inválido.' });
+    }
+
+    const { rowCount, rows } = await pool.query(
+      'DELETE FROM estandar WHERE id = $1 RETURNING id, codigo_estandar;',
+      [estandarId]
+    );
+
+    if (rowCount === 0) {
+      return res.status(404).json({
+        message: `No se encontró el estándar con ID #${estandarId}.`,
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Estándar y sus subestándares asociados eliminados correctamente.',
+      eliminado: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al eliminar estándar:', error);
+    return res.status(500).json({
+      message: 'Error interno al eliminar el estándar de la base de datos.',
+    });
+  }
+});
+
+/**
+ * 3. PUT /api/subestandares/:id
+ * Actualiza el código y la descripción de un Subestándar en la tabla `subestandar`
+ */
+router.put('/subestandares/:id', async (req, res) => {
+  try {
+    const subestandarId = Number(req.params.id);
+    if (isNaN(subestandarId) || subestandarId <= 0) {
+      return res.status(400).json({ message: 'ID de subestándar inválido.' });
+    }
+
+    const { estandar_id, codigo_subestandar, descripcion } = req.body;
+
+    if (!codigo_subestandar || !String(codigo_subestandar).trim()) {
+      return res.status(400).json({
+        message: 'El código del subestándar es obligatorio.',
+      });
+    }
+
+    if (!descripcion || !String(descripcion).trim()) {
+      return res.status(400).json({
+        message: 'La descripción del subestándar es obligatoria.',
+      });
+    }
+
+    const updateQuery = `
+      UPDATE subestandar
+      SET
+        estandar_id = COALESCE($1, estandar_id),
+        codigo_subestandar = $2,
+        descripcion = $3
+      WHERE id = $4
+      RETURNING id, estandar_id, codigo_subestandar, descripcion;
+    `;
+
+    const parsedEstandarId =
+      estandar_id && !isNaN(Number(estandar_id)) ? Number(estandar_id) : null;
+
+    const { rows } = await pool.query(updateQuery, [
+      parsedEstandarId,
+      String(codigo_subestandar).trim(),
+      String(descripcion).trim(),
+      subestandarId,
+    ]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: `No se encontró el subestándar con ID #${subestandarId}.`,
+      });
+    }
+
+    // Obtener también el codigo_estandar padre para devolver el objeto completo al frontend
+    const enriched = await pool.query(
+      `SELECT s.id, s.estandar_id, e.codigo_estandar, s.codigo_subestandar, s.descripcion
+       FROM subestandar s
+       INNER JOIN estandar e ON s.estandar_id = e.id
+       WHERE s.id = $1;`,
+      [subestandarId]
+    );
+
+    return res.status(200).json({
+      message: 'Subestándar actualizado correctamente.',
+      subestandar: enriched.rows[0] || rows[0],
+    });
+  } catch (error) {
+    console.error('Error al actualizar subestándar:', error);
+    return res.status(500).json({
+      message: 'Error interno al actualizar el subestándar en la base de datos.',
+    });
+  }
+});
+
+/**
+ * 4. DELETE /api/subestandares/:id
+ * Elimina un Subestándar de la tabla `subestandar`
+ */
+router.delete('/subestandares/:id', async (req, res) => {
+  try {
+    const subestandarId = Number(req.params.id);
+    if (isNaN(subestandarId) || subestandarId <= 0) {
+      return res.status(400).json({ message: 'ID de subestándar inválido.' });
+    }
+
+    const { rowCount, rows } = await pool.query(
+      'DELETE FROM subestandar WHERE id = $1 RETURNING id, estandar_id, codigo_subestandar;',
+      [subestandarId]
+    );
+
+    if (rowCount === 0) {
+      return res.status(404).json({
+        message: `No se encontró el subestándar con ID #${subestandarId}.`,
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Subestándar eliminado correctamente.',
+      eliminado: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al eliminar subestándar:', error);
+    return res.status(500).json({
+      message: 'Error interno al eliminar el subestándar de la base de datos.',
+    });
+  }
+});
+
+
+
+
+
 export default router;
