@@ -14,7 +14,13 @@ import MatrizExcel from './routes/matriz_excel.routes.js';
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://matrizriesgofront-production.up.railway.app' // O usa '*' para pruebas iniciales
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 app.get("/", (_, res) => {
@@ -35,7 +41,7 @@ app.use('/api', Estandar);
 app.use('/api', MatrizExcel);
 
 
-app.use('/seed', Seed);
+//app.use('/seed', Seed);
 
 app.get("/api/db-check", async (_, res) => {
   try {

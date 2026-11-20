@@ -415,6 +415,140 @@ router.delete('/riesgos/:id', async (req, res) => {
 
 
 
+/*
+NOTICIAS ROUTES
+*/ 
+
+router.get('/noticias', async (_req, res) => {
+  try {
+    const query = `
+      SELECT 
+        n.id,
+        n.nombre,
+        n.area,
+        TO_CHAR(n.fecha, 'YYYY-MM-DD') AS fecha,
+        n.texto,
+        n.estandar_id,
+        COALESCE(e.codigo_estandar, n.codigo_estandar, 'General') AS codigo_estandar
+      FROM noticias n
+      LEFT JOIN estandar e ON n.estandar_id = e.id
+      ORDER BY n.fecha DESC, n.id DESC;
+    `;
+    const { rows } = await pool.query(query);
+    return res.status(200).json(rows);
+  } catch (error) {
+    console.error('Error al obtener noticias:', error);
+    return res.status(500).json({ error: 'Error al obtener las noticias' });
+  }
+});
+// 2. POST /api/noticias - Crear noticia (Admin)
+router.post('/noticias', async (req, res) => {
+  const { nombre, area, fecha, texto, estandar_id, codigo_estandar } = req.body;
+  if (!nombre || !area || !fecha || !texto || !codigo_estandar) {
+    return res.status(400).json({
+      error: 'Todos los campos (nombre, area, fecha, texto y codigo_estandar) son obligatorios',
+    });
+  }
+  try {
+    const insertQuery = `
+      INSERT INTO noticias (nombre, area, fecha, texto, estandar_id, codigo_estandar)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, nombre, area, TO_CHAR(fecha, 'YYYY-MM-DD') AS fecha, texto, estandar_id, codigo_estandar;
+    `;
+    const { rows } = await pool.query(insertQuery, [
+      String(nombre).trim(),
+      String(area).trim(),
+      fecha,
+      String(texto).trim(),
+      estandar_id ? Number(estandar_id) : null,
+      String(codigo_estandar).trim(),
+    ]);
+    return res.status(201).json({
+      mensaje: 'Noticia registrada exitosamente',
+      noticia: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al crear noticia:', error);
+    return res.status(500).json({ error: 'Error al registrar la noticia' });
+  }
+});
+// 3. PUT /api/noticias/:id - Editar noticia (Admin)
+router.put('/noticias/:id', async (req, res) => {
+  const noticiaId = Number(req.params.id);
+  const { nombre, area, fecha, texto, estandar_id, codigo_estandar } = req.body;
+  if (isNaN(noticiaId) || noticiaId <= 0) {
+    return res.status(400).json({ error: 'ID de noticia inválido' });
+  }
+  if (!nombre || !area || !fecha || !texto || !codigo_estandar) {
+    return res.status(400).json({
+      error: 'Todos los campos son obligatorios para actualizar la noticia',
+    });
+  }
+  try {
+    const updateQuery = `
+      UPDATE noticias
+      SET
+        nombre = $1,
+        area = $2,
+        fecha = $3,
+        texto = $4,
+        estandar_id = $5,
+        codigo_estandar = $6
+      WHERE id = $7
+      RETURNING id, nombre, area, TO_CHAR(fecha, 'YYYY-MM-DD') AS fecha, texto, estandar_id, codigo_estandar;
+    `;
+    const { rows } = await pool.query(updateQuery, [
+      String(nombre).trim(),
+      String(area).trim(),
+      fecha,
+      String(texto).trim(),
+      estandar_id ? Number(estandar_id) : null,
+      String(codigo_estandar).trim(),
+      noticiaId,
+    ]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Noticia no encontrada' });
+    }
+    return res.status(200).json({
+      mensaje: 'Noticia actualizada exitosamente',
+      noticia: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al actualizar noticia:', error);
+    return res.status(500).json({ error: 'Error al actualizar la noticia' });
+  }
+});
+// 4. DELETE /api/noticias/:id - Eliminar noticia (Admin)
+router.delete('/noticias/:id', async (req, res) => {
+  const noticiaId = Number(req.params.id);
+  if (isNaN(noticiaId) || noticiaId <= 0) {
+    return res.status(400).json({ error: 'ID de noticia inválido' });
+  }
+  try {
+    const { rowCount, rows } = await pool.query(
+      'DELETE FROM noticias WHERE id = $1 RETURNING id, nombre;',
+      [noticiaId]
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Noticia no encontrada' });
+    }
+    return res.status(200).json({
+      mensaje: 'Noticia eliminada correctamente',
+      eliminada: rows[0],
+    });
+  } catch (error) {
+    console.error('Error al eliminar noticia:', error);
+    return res.status(500).json({ error: 'Error al eliminar la noticia' });
+  }
+});
+
+
+
+
+
+
+
+
 
 
 export default router;

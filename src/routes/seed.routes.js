@@ -4,17 +4,69 @@ import { pool } from '../config/db.js';
 
 const router = Router();
 
+
+router.post('/reg/estados', async (req, res) => {
+  const estados = [
+    'Aguascalientes',
+    'Baja California',
+    'Baja California Sur',
+    'Campeche',
+    'Chiapas',
+    'Chihuahua',
+    'Ciudad de México',
+    'Coahuila',
+    'Colima',
+    'Durango',
+    'Estado de México',
+    'Guanajuato',
+    'Guerrero',
+    'Hidalgo',
+    'Jalisco',
+    'Michoacán',
+    'Morelos',
+    'Nayarit',
+    'Nuevo León',
+    'Oaxaca',
+    'Puebla',
+    'Querétaro',
+    'Quintana Roo',
+    'San Luis Potosí',
+    'Sinaloa',
+    'Sonora',
+    'Tabasco',
+    'Tamaulipas',
+    'Tlaxcala',
+    'Veracruz',
+    'Yucatán',
+    'Zacatecas'
+  ];
+
+  try {
+    const resEstados = await pool.query(
+      `INSERT INTO estados (nombre)
+       SELECT * FROM UNNEST($1::text[])
+       RETURNING id, nombre;`,
+      [estados]
+    );
+
+    res.status(201).json({
+      mensaje: 'Estados registrados correctamente',
+      total: resEstados.rowCount,
+      estados: resEstados.rows
+    });
+  } catch (error) {
+    console.error('Error al registrar los estados:', error);
+    res.status(500).json({ error: 'Error interno del servidor al registrar estados' });
+  }
+});
+
 router.post('/reg', async (req, res) => {
   try {
-    const resEstado = await pool.query(
-      `INSERT INTO estados (nombre) VALUES ($1) RETURNING id;`,
-      ['Aguascalientes']
-    );
 
     const resEmpresa = await pool.query(
       `INSERT INTO empresas (nombre_razon_social, rfc, sector, estado_id, fecha_registro) 
        VALUES ($1, $2, $3, $4, $5) RETURNING id;`,
-      ['CMB C.V.', 'LOGI123456789', 'Aduanas', resEstado.rows[0].id, '2001-01-01']
+      ['CMB C.V.', 'LOGI123456789', 'Aduanas', 1, '2001-01-01']
     );
     const empresaId = resEmpresa.rows[0].id;
 
@@ -43,11 +95,13 @@ router.get('/view', async (req, res) => {
     const estados = await pool.query(`SELECT * FROM estados;`);
     const empresas = await pool.query(`SELECT * FROM empresas;`);
     const usuarios = await pool.query(`SELECT * FROM usuarios;`);
+    const noticias = await pool.query(`SELECT * FROM noticias;`);
 
     res.status(200).json({
       estados: estados.rows,
       empresas: empresas.rows,
-      usuarios: usuarios.rows
+      usuarios: usuarios.rows,
+      noticias: noticias.rows
     });
   } catch (error) {
     console.error('❌ Error al obtener datos:', error);
