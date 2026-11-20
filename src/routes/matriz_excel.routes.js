@@ -83,6 +83,23 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
     const matriz = matrizResult.rows[0];
     const riesgos = Array.isArray(matriz.datos) ? matriz.datos : [];
 
+    // Mapa auxiliar de subestándares y estándares en BD por si algún registro solo trae subestandar_id
+    const subMapById = new Map();
+    const subMapByCode = new Map();
+    try {
+      const catResult = await pool.query(
+        `SELECT s.id AS subestandar_id, s.codigo_subestandar, e.id AS estandar_id, e.codigo_estandar
+         FROM subestandar s
+         INNER JOIN estandar e ON s.estandar_id = e.id`
+      );
+      catResult.rows.forEach((row) => {
+        subMapById.set(String(row.subestandar_id), row);
+        subMapByCode.set(String(row.codigo_subestandar).trim().toLowerCase(), row);
+      });
+    } catch {
+      // Continuar con los datos contenidos en el JSONB
+    }
+
     // Helper para obtener colores según la Zona / Nivel de Riesgo
     const getRiskLevelStyle = (zonaRaw) => {
       if (!zonaRaw || zonaRaw === 'N/A') return null;
@@ -135,10 +152,11 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       views: [{ state: 'frozen', ySplit: 7 }],
     });
 
-    // Definir las 22 columnas (A - V) correspondientes a las 3 Etapas en MatrizVisualizacion.jsx
+    // Definir las 23 columnas (A - W) con Estándar y Subestándar separados
     sheet.columns = [
-      // Etapa 1: Identificación y Evaluación del Riesgo (Inherente) (Cols 1-10: A-J)
-      { key: 'numeral', width: 14 },
+      // Etapa 1: Identificación y Evaluación del Riesgo (Inherente) (Cols 1-11: A-K)
+      { key: 'estandar', width: 15 },
+      { key: 'subestandar', width: 16 },
       { key: 'contexto', width: 24 },
       { key: 'proceso', width: 24 },
       { key: 'riesgo', width: 34 },
@@ -148,13 +166,13 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       { key: 'impacto1', width: 14 },
       { key: 'gradoRiesgo1', width: 15 },
       { key: 'zonaRiesgo1', width: 18 },
-      // Etapa 2: Controles Implementados y Reevaluación (Cols 11-15: K-O)
+      // Etapa 2: Controles Implementados y Reevaluación (Cols 12-16: L-P)
       { key: 'controlesImplementados', width: 36 },
       { key: 'probabilidad2', width: 15 },
       { key: 'impacto2', width: 14 },
       { key: 'gradoRiesgo2', width: 15 },
       { key: 'zonaRiesgo2', width: 18 },
-      // Etapa 3: Controles Complementarios, Riesgo Residual y Seguimiento (Cols 16-22: P-V)
+      // Etapa 3: Controles Complementarios, Riesgo Residual y Seguimiento (Cols 17-23: Q-W)
       { key: 'controlesComplementarios', width: 38 },
       { key: 'probabilidad3', width: 15 },
       { key: 'impacto3', width: 14 },
@@ -164,10 +182,10 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       { key: 'responsable', width: 30 },
     ];
 
-    const TOTAL_COLS = 22; // Columnas A (1) a V (22)
+    const TOTAL_COLS = 23; // Columnas A (1) a W (23)
 
     // --- SECCIÓN SUPERIOR: TÍTULO Y DATOS DE LA EMPRESA ---
-    sheet.mergeCells('A1:V1');
+    sheet.mergeCells('A1:W1');
     const titleCell = sheet.getCell('A1');
     titleCell.value =
       'REPORTE EJECUTIVO - MATRIZ DE GESTIÓN Y ANÁLISIS DE RIESGOS';
@@ -220,20 +238,20 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       const row = sheet.getRow(rowNum);
       row.height = 22;
 
-      // Bloque 1: Columnas A-B (label) y C-G (valor)
+      // Bloque 1: Columnas A-B (label) y C-H (valor)
       sheet.mergeCells(`A${rowNum}:B${rowNum}`);
-      sheet.mergeCells(`C${rowNum}:G${rowNum}`);
-      // Bloque 2: Columnas H-I (label) y J-N (valor)
-      sheet.mergeCells(`H${rowNum}:I${rowNum}`);
-      sheet.mergeCells(`J${rowNum}:N${rowNum}`);
-      // Bloque 3: Columnas O-P (label) y Q-V (valor)
-      sheet.mergeCells(`O${rowNum}:P${rowNum}`);
-      sheet.mergeCells(`Q${rowNum}:V${rowNum}`);
+      sheet.mergeCells(`C${rowNum}:H${rowNum}`);
+      // Bloque 2: Columnas I-J (label) y K-O (valor)
+      sheet.mergeCells(`I${rowNum}:J${rowNum}`);
+      sheet.mergeCells(`K${rowNum}:O${rowNum}`);
+      // Bloque 3: Columnas P-Q (label) y R-W (valor)
+      sheet.mergeCells(`P${rowNum}:Q${rowNum}`);
+      sheet.mergeCells(`R${rowNum}:W${rowNum}`);
 
       const blocks = [
         { labelCell: `A${rowNum}`, valCell: `C${rowNum}`, data: rowItems[0] },
-        { labelCell: `H${rowNum}`, valCell: `J${rowNum}`, data: rowItems[1] },
-        { labelCell: `O${rowNum}`, valCell: `Q${rowNum}`, data: rowItems[2] },
+        { labelCell: `I${rowNum}`, valCell: `K${rowNum}`, data: rowItems[1] },
+        { labelCell: `P${rowNum}`, valCell: `R${rowNum}`, data: rowItems[2] },
       ];
 
       blocks.forEach(({ labelCell, valCell, data }) => {
@@ -288,8 +306,8 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
     const groupRow = sheet.getRow(6);
     groupRow.height = 26;
 
-    // Etapa 1: Columnas A a J (1 a 10)
-    sheet.mergeCells('A6:J6');
+    // Etapa 1: Columnas A a K (1 a 11)
+    sheet.mergeCells('A6:K6');
     sheet.getCell('A6').value =
       'ETAPA 1: IDENTIFICACIÓN Y EVALUACIÓN DEL RIESGO (INHERENTE)';
     sheet.getCell('A6').fill = {
@@ -298,27 +316,27 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       fgColor: { argb: 'FF3730A3' },
     };
 
-    // Etapa 2: Columnas K a O (11 a 15)
-    sheet.mergeCells('K6:O6');
-    sheet.getCell('K6').value =
+    // Etapa 2: Columnas L a P (12 a 16)
+    sheet.mergeCells('L6:P6');
+    sheet.getCell('L6').value =
       'ETAPA 2: CONTROLES IMPLEMENTADOS Y REEVALUACIÓN';
-    sheet.getCell('K6').fill = {
+    sheet.getCell('L6').fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FFD97706' },
     };
 
-    // Etapa 3: Columnas P a V (16 a 22)
-    sheet.mergeCells('P6:V6');
-    sheet.getCell('P6').value =
+    // Etapa 3: Columnas Q a W (17 a 23)
+    sheet.mergeCells('Q6:W6');
+    sheet.getCell('Q6').value =
       'ETAPA 3: CONTROLES COMPLEMENTARIOS, RIESGO RESIDUAL Y SEGUIMIENTO';
-    sheet.getCell('P6').fill = {
+    sheet.getCell('Q6').fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FF047857' },
     };
 
-    ['A6', 'K6', 'P6'].forEach((ref) => {
+    ['A6', 'L6', 'Q6'].forEach((ref) => {
       const c = sheet.getCell(ref);
       c.font = {
         name: 'Calibri',
@@ -333,10 +351,11 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       groupRow.getCell(col).border = thinBorder;
     }
 
-    // --- FILA 7: ENCABEZADOS DE LAS 22 COLUMNAS ---
+    // --- FILA 7: ENCABEZADOS DE LAS 23 COLUMNAS (ESTÁNDAR Y SUBESTÁNDAR SEPARADOS) ---
     const headers = [
-      // Etapa 1 (1 - 10)
-      'NUMERAL',
+      // Etapa 1 (1 - 11)
+      'ESTÁNDAR',
+      'SUBESTÁNDAR',
       'CONTEXTO',
       'PROCESO',
       'RIESGO',
@@ -346,13 +365,13 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       'IMPACTO',
       'GRADO RIESGO',
       'ZONA DE RIESGO',
-      // Etapa 2 (11 - 15)
+      // Etapa 2 (12 - 16)
       'CONTROLES IMPLEMENTADOS',
       'PROBABILIDAD',
       'IMPACTO',
       'GRADO RIESGO',
       'ZONA DE RIESGO',
-      // Etapa 3 (16 - 22)
+      // Etapa 3 (17 - 23)
       'CONTROLES COMPLEMENTARIOS',
       'PROBABILIDAD',
       'IMPACTO',
@@ -367,8 +386,8 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
     headerRow.height = 30;
     headerRow.eachCell((cell, colNumber) => {
       let bgHex = 'FF4338CA'; // Etapa 1 (Indigo)
-      if (colNumber >= 11 && colNumber <= 15) bgHex = 'FFB45309'; // Etapa 2 (Amber)
-      if (colNumber >= 16) bgHex = 'FF065F46'; // Etapa 3 (Emerald)
+      if (colNumber >= 12 && colNumber <= 16) bgHex = 'FFB45309'; // Etapa 2 (Amber)
+      if (colNumber >= 17) bgHex = 'FF065F46'; // Etapa 3 (Emerald)
 
       cell.font = {
         name: 'Calibri',
@@ -389,12 +408,14 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       cell.border = thinBorder;
     });
 
-    // Activar autofiltro en las 22 columnas
-    sheet.autoFilter = 'A7:V7';
+    // Activar autofiltro en las 23 columnas
+    sheet.autoFilter = 'A7:W7';
 
     // --- FILAS DE DATOS (A PARTIR DE LA FILA 8) ---
-    // Columnas centradas: Numeral(1), Contexto(2), Prob/Imp/Grado/Zona Etapa1(7,8,9,10), Etapa2(12,13,14,15), Etapa3(17,18,19,20)
-    const centerCols = new Set([1, 2, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18, 19, 20]);
+    // Columnas centradas: Estándar(1), Subestándar(2), Contexto(3), Prob/Imp/Grado/Zona Etapa1(8,9,10,11), Etapa2(13,14,15,16), Etapa3(18,19,20,21)
+    const centerCols = new Set([
+      1, 2, 3, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21,
+    ]);
 
     riesgos.forEach((r, idx) => {
       // Evaluación Etapa 1
@@ -415,14 +436,33 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
         r.impactoEtapa3 ?? 'N/A'
       );
 
-      const numeralVal =
-        r.numeral && r.numeral !== 'N/A'
-          ? r.numeral
+      // Resolver Estándar y Subestándar desde las propiedades de BD o mapa auxiliar
+      const rawSubCode =
+        r.codigo_subestandar && r.codigo_subestandar !== 'N/A'
+          ? String(r.codigo_subestandar).trim()
           : r.subestandar && r.subestandar !== 'N/A'
-          ? r.subestandar
+          ? String(r.subestandar).trim()
+          : '';
+
+      const matchedCatalogSub =
+        (r.subestandar_id && subMapById.get(String(r.subestandar_id))) ||
+        (rawSubCode && subMapByCode.get(rawSubCode.toLowerCase())) ||
+        null;
+
+      const estandarVal =
+        (r.codigo_estandar && r.codigo_estandar !== 'N/A'
+          ? r.codigo_estandar
           : r.estandar && r.estandar !== 'N/A'
           ? r.estandar
-          : `1.${idx + 1}`;
+          : matchedCatalogSub?.codigo_estandar) ||
+        (r.numeral && String(r.numeral).includes('.')
+          ? String(r.numeral).split('.')[0]
+          : r.numeral || 'N/A');
+
+      const subestandarVal =
+        rawSubCode ||
+        matchedCatalogSub?.codigo_subestandar ||
+        (r.numeral && r.numeral !== 'N/A' ? r.numeral : 'N/A');
 
       const contextoVal =
         r.contexto ||
@@ -435,7 +475,8 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
 
       const rowValues = {
         // Etapa 1
-        numeral: numeralVal,
+        estandar: estandarVal,
+        subestandar: subestandarVal,
         contexto: contextoVal,
         proceso: procesoVal,
         riesgo: r.title || r.riesgo || '',
@@ -488,11 +529,11 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
         };
       });
 
-      // Aplicar semáforo de colores a las 3 columnas de "ZONA DE RIESGO" (Cols 10, 15 y 20)
+      // Aplicar semáforo de colores a las 3 columnas de "ZONA DE RIESGO" (Cols 11, 16 y 21)
       [
-        { col: 10, val: rowValues.zonaRiesgo1 },
-        { col: 15, val: rowValues.zonaRiesgo2 },
-        { col: 20, val: rowValues.zonaRiesgo3 },
+        { col: 11, val: rowValues.zonaRiesgo1 },
+        { col: 16, val: rowValues.zonaRiesgo2 },
+        { col: 21, val: rowValues.zonaRiesgo3 },
       ].forEach(({ col, val }) => {
         const riskStyle = getRiskLevelStyle(val);
         if (riskStyle) {
