@@ -106,6 +106,7 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       const n = String(zonaRaw).trim().toLowerCase();
 
       if (
+        n.includes('muy grave') ||
         n.includes('crítico') ||
         n.includes('critico') ||
         n.includes('extremo') ||
@@ -125,6 +126,7 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
         return { bg: 'FFFEF9C3', fg: 'FF854D0E' }; // Amarillo suave / texto ámbar oscuro
       }
       if (
+        n.includes('marginal') ||
         n.includes('aceptable') ||
         n.includes('bajo') ||
         n.includes('mínimo') ||
@@ -222,6 +224,7 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
           label: 'Identificador Matriz:',
           value: matriz.identificador || `Matriz #${matriz.id}`,
         },
+        { label: 'Domicilio:', value: 'N/A' },
       ],
       [
         { label: 'Sector:', value: matriz.sector || 'N/A' },
@@ -230,32 +233,21 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
           label: 'Versión / Actualización:',
           value: `v${matriz.version_matriz || 1} (${fechaAct})`,
         },
+        { label: 'Planta:', value: 'N/A' },
       ],
     ];
 
+    // Cada campo utiliza 1 celda para la etiqueta y 1 celda para el valor, sin combinar celdas
     infoRows.forEach((rowItems, idx) => {
       const rowNum = idx + 2; // Filas 2 y 3
       const row = sheet.getRow(rowNum);
       row.height = 22;
 
-      // Bloque 1: Columnas A-B (label) y C-H (valor)
-      sheet.mergeCells(`A${rowNum}:B${rowNum}`);
-      sheet.mergeCells(`C${rowNum}:H${rowNum}`);
-      // Bloque 2: Columnas I-J (label) y K-O (valor)
-      sheet.mergeCells(`I${rowNum}:J${rowNum}`);
-      sheet.mergeCells(`K${rowNum}:O${rowNum}`);
-      // Bloque 3: Columnas P-Q (label) y R-W (valor)
-      sheet.mergeCells(`P${rowNum}:Q${rowNum}`);
-      sheet.mergeCells(`R${rowNum}:W${rowNum}`);
+      rowItems.forEach((data, itemIdx) => {
+        const labelCol = itemIdx * 2 + 1; // Columnas A(1), C(3), E(5), G(7)
+        const valCol = labelCol + 1; // Columnas B(2), D(4), F(6), H(8)
 
-      const blocks = [
-        { labelCell: `A${rowNum}`, valCell: `C${rowNum}`, data: rowItems[0] },
-        { labelCell: `I${rowNum}`, valCell: `K${rowNum}`, data: rowItems[1] },
-        { labelCell: `P${rowNum}`, valCell: `R${rowNum}`, data: rowItems[2] },
-      ];
-
-      blocks.forEach(({ labelCell, valCell, data }) => {
-        const lCell = sheet.getCell(labelCell);
+        const lCell = row.getCell(labelCol);
         lCell.value = data.label;
         lCell.font = {
           name: 'Calibri',
@@ -273,8 +265,9 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
           horizontal: 'left',
           indent: 1,
         };
+        lCell.border = thinBorder;
 
-        const vCell = sheet.getCell(valCell);
+        const vCell = row.getCell(valCol);
         vCell.value = data.value;
         vCell.font = {
           name: 'Calibri',
@@ -292,11 +285,8 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
           horizontal: 'left',
           indent: 1,
         };
+        vCell.border = thinBorder;
       });
-
-      for (let col = 1; col <= TOTAL_COLS; col++) {
-        row.getCell(col).border = thinBorder;
-      }
     });
 
     // Fila 4: Separador vacío
@@ -364,19 +354,19 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
       'PROBABILIDAD',
       'IMPACTO',
       'GRADO RIESGO',
-      'ZONA DE RIESGO',
+      'TIPO DE RIESGO',
       // Etapa 2 (12 - 16)
       'CONTROLES IMPLEMENTADOS',
       'PROBABILIDAD',
       'IMPACTO',
       'GRADO RIESGO',
-      'ZONA DE RIESGO',
+      'TIPO DE RIESGO',
       // Etapa 3 (17 - 23)
       'CONTROLES COMPLEMENTARIOS',
       'PROBABILIDAD',
       'IMPACTO',
       'GRADO RIESGO',
-      'ZONA DE RIESGO',
+      'TIPO DE RIESGO',
       'SEGUIMIENTO Y REVISIÓN DE RIESGOS RESIDUALES',
       'RESPONSABLE',
     ];
@@ -529,7 +519,7 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
         };
       });
 
-      // Aplicar semáforo de colores a las 3 columnas de "ZONA DE RIESGO" (Cols 11, 16 y 21)
+      // Aplicar semáforo de colores a las 3 columnas de "TIPO DE RIESGO" (Cols 11, 16 y 21)
       [
         { col: 11, val: rowValues.zonaRiesgo1 },
         { col: 16, val: rowValues.zonaRiesgo2 },
@@ -551,6 +541,382 @@ router.get('/matriz/exportar-excel/:id', async (req, res) => {
           };
         }
       });
+    });
+
+    // =========================================================================
+    // NUEVA PÁGINA 2: GRADO DE RIESGO (CUADRO ENTRE IMPACTO Y PROBABILIDAD)
+    // =========================================================================
+    const gradoSheet = workbook.addWorksheet('Grado de Riesgo');
+    gradoSheet.columns = [
+      { key: 'c1', width: 4 },
+      { key: 'c2', width: 26 },
+      { key: 'c3', width: 18 },
+      { key: 'c4', width: 18 },
+      { key: 'c5', width: 18 },
+      { key: 'c6', width: 18 },
+      { key: 'c7', width: 18 },
+    ];
+
+    const boxBorder = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } },
+    };
+
+    // Título principal de la hoja Grado de Riesgo
+    gradoSheet.mergeCells('B2:G2');
+    const gradoTitle = gradoSheet.getCell('B2');
+    gradoTitle.value =
+      'CÁLCULO DEL GRADO DE RIESGO (CUADRO PROBABILIDAD VS. IMPACTO)';
+    gradoTitle.font = {
+      name: 'Calibri',
+      size: 13,
+      bold: true,
+      color: { argb: 'FFFFFFFF' },
+    };
+    gradoTitle.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E293B' },
+    };
+    gradoTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+    gradoSheet.getRow(2).height = 30;
+
+    // Breve explicación de cómo se calcula el Grado de Riesgo
+    gradoSheet.mergeCells('B4:G4');
+    const gradoExpHeader = gradoSheet.getCell('B4');
+    gradoExpHeader.value = '¿Cómo se calcula el Grado de Riesgo?';
+    gradoExpHeader.font = {
+      name: 'Calibri',
+      size: 11,
+      bold: true,
+      color: { argb: 'FF1E3A8A' },
+    };
+    gradoExpHeader.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFDBEAFE' },
+    };
+    gradoExpHeader.alignment = {
+      vertical: 'middle',
+      horizontal: 'left',
+      indent: 1,
+    };
+    gradoSheet.getRow(4).height = 24;
+
+    gradoSheet.mergeCells('B5:G6');
+    const gradoExpBody = gradoSheet.getCell('B5');
+    gradoExpBody.value =
+      'El Grado de Riesgo se calcula multiplicando el nivel de PROBABILIDAD de que ocurra el evento (escala del 1 al 5) por el nivel de IMPACTO o severidad de sus consecuencias (escala del 1 al 5):\n' +
+      'Fórmula:  GRADO DE RIESGO = PROBABILIDAD × IMPACTO  (Resultado entre 1 y 25).';
+    gradoExpBody.font = {
+      name: 'Calibri',
+      size: 10,
+      color: { argb: 'FF0F172A' },
+    };
+    gradoExpBody.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF8FAFC' },
+    };
+    gradoExpBody.alignment = {
+      vertical: 'middle',
+      horizontal: 'left',
+      wrapText: true,
+      indent: 1,
+    };
+    gradoSheet.getRow(5).height = 22;
+    gradoSheet.getRow(6).height = 22;
+
+    for (let r = 4; r <= 6; r++) {
+      for (let c = 2; c <= 7; c++) {
+        gradoSheet.getRow(r).getCell(c).border = thinBorder;
+      }
+    }
+
+    // Encabezado superior del cuadro: IMPACTO
+    gradoSheet.mergeCells('C8:G8');
+    const impactoBanner = gradoSheet.getCell('C8');
+    impactoBanner.value = 'IMPACTO (SEVERIDAD DE LAS CONSECUENCIAS)';
+    impactoBanner.font = {
+      name: 'Calibri',
+      size: 11,
+      bold: true,
+      color: { argb: 'FFFFFFFF' },
+    };
+    impactoBanner.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF3730A3' },
+    };
+    impactoBanner.alignment = { vertical: 'middle', horizontal: 'center' };
+    gradoSheet.getRow(8).height = 26;
+
+    const esquinaCell = gradoSheet.getCell('B8');
+    esquinaCell.value = 'MATRIZ 5 × 5';
+    esquinaCell.font = {
+      name: 'Calibri',
+      size: 10,
+      bold: true,
+      color: { argb: 'FFFFFFFF' },
+    };
+    esquinaCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF0F172A' },
+    };
+    esquinaCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    for (let c = 2; c <= 7; c++) {
+      gradoSheet.getRow(8).getCell(c).border = boxBorder;
+    }
+
+    // Fila 9: Niveles de Impacto (Columnas C a G)
+    const impactHeaders = [
+      'PROBABILIDAD \\ IMPACTO',
+      '1 - Insignificante\n(Valor 1)',
+      '2 - Menor\n(Valor 2)',
+      '3 - Moderado\n(Valor 3)',
+      '4 - Mayor\n(Valor 4)',
+      '5 - Catastrófico\n(Valor 5)',
+    ];
+
+    const row9 = gradoSheet.getRow(9);
+    row9.height = 32;
+    impactHeaders.forEach((text, i) => {
+      const colIdx = i + 2; // Cols B(2) a G(7)
+      const cell = row9.getCell(colIdx);
+      cell.value = text;
+      cell.font = {
+        name: 'Calibri',
+        size: 10,
+        bold: true,
+        color: { argb: 'FFFFFFFF' },
+      };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: i === 0 ? 'FF1E293B' : 'FF4338CA' },
+      };
+      cell.alignment = {
+        vertical: 'middle',
+        horizontal: 'center',
+        wrapText: true,
+      };
+      cell.border = boxBorder;
+    });
+
+    // Color de cada celda según la ponderación del Grado de Riesgo
+    const getScoreCellColor = (score) => {
+      if (score >= 15) return { bg: 'FFFF0000', fg: 'FF000000' }; // MUY GRAVE (15 a 25) - Rojo
+      if (score >= 9) return { bg: 'FFFF6600', fg: 'FF000000' }; // IMPORTANTE (9 a 14) - Naranja
+      if (score >= 3) return { bg: 'FFFFFF00', fg: 'FF000000' }; // APRECIABLE (3 a 8) - Amarillo
+      return { bg: 'FF70AD47', fg: 'FF000000' }; // MARGINAL (1 A 2) - Verde
+    };
+
+    const probabilityRows = [
+      { value: 1, label: '1 - Muy Baja (Valor 1)' },
+      { value: 2, label: '2 - Baja (Valor 2)' },
+      { value: 3, label: '3 - Media (Valor 3)' },
+      { value: 4, label: '4 - Alta (Valor 4)' },
+      { value: 5, label: '5 - Muy Alta (Valor 5)' },
+    ];
+
+    probabilityRows.forEach((probItem, idx) => {
+      const rIdx = 10 + idx; // Filas 10 a 14
+      const row = gradoSheet.getRow(rIdx);
+      row.height = 28;
+
+      const labelCell = row.getCell(2); // Columna B
+      labelCell.value = probItem.label;
+      labelCell.font = {
+        name: 'Calibri',
+        size: 10,
+        bold: true,
+        color: { argb: 'FFFFFFFF' },
+      };
+      labelCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF334155' },
+      };
+      labelCell.alignment = { vertical: 'middle', horizontal: 'center' };
+      labelCell.border = boxBorder;
+
+      for (let impVal = 1; impVal <= 5; impVal++) {
+        const colIdx = impVal + 2; // Columnas C(3) a G(7)
+        const score = probItem.value * impVal;
+        const style = getScoreCellColor(score);
+        const cell = row.getCell(colIdx);
+
+        cell.value = score;
+        cell.font = {
+          name: 'Calibri',
+          size: 11,
+          bold: true,
+          color: { argb: style.fg },
+        };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: style.bg },
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = boxBorder;
+      }
+    });
+
+    // =========================================================================
+    // NUEVA PÁGINA 3: CATEGORIZACIÓN DE TIPO DE RIESGO
+    // =========================================================================
+    const tipoSheet = workbook.addWorksheet('Tipo de Riesgo');
+    tipoSheet.columns = [
+      { key: 'c1', width: 6 },
+      { key: 'c2', width: 32 },
+      { key: 'c3', width: 42 },
+    ];
+
+    // Título principal de la hoja Tipo de Riesgo
+    tipoSheet.mergeCells('B2:C2');
+    const tipoTitle = tipoSheet.getCell('B2');
+    tipoTitle.value = 'CATEGORIZACIÓN DE TIPO DE RIESGO';
+    tipoTitle.font = {
+      name: 'Calibri',
+      size: 13,
+      bold: true,
+      color: { argb: 'FFFFFFFF' },
+    };
+    tipoTitle.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E293B' },
+    };
+    tipoTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+    tipoSheet.getRow(2).height = 30;
+
+    // Breve explicación de cómo se calcula el Tipo de Riesgo
+    tipoSheet.mergeCells('B4:C4');
+    const tipoExpHeader = tipoSheet.getCell('B4');
+    tipoExpHeader.value = '¿Cómo se calcula el Tipo de Riesgo?';
+    tipoExpHeader.font = {
+      name: 'Calibri',
+      size: 11,
+      bold: true,
+      color: { argb: 'FF1E3A8A' },
+    };
+    tipoExpHeader.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFDBEAFE' },
+    };
+    tipoExpHeader.alignment = {
+      vertical: 'middle',
+      horizontal: 'left',
+      indent: 1,
+    };
+    tipoSheet.getRow(4).height = 24;
+
+    tipoSheet.mergeCells('B5:C7');
+    const tipoExpBody = tipoSheet.getCell('B5');
+    tipoExpBody.value =
+      'El Tipo de Riesgo se obtiene a partir del puntaje del Grado de Riesgo (Probabilidad × Impacto). ' +
+      'Una vez calculado dicho valor (entre 1 y 25), se ubica dentro del rango de PONDERACIÓN correspondiente en la siguiente tabla para clasificarlo como MARGINAL (1 a 2), APRECIABLE (3 a 8), IMPORTANTE (9 a 14) o MUY GRAVE (15 a 25).';
+    tipoExpBody.font = {
+      name: 'Calibri',
+      size: 10,
+      color: { argb: 'FF0F172A' },
+    };
+    tipoExpBody.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF8FAFC' },
+    };
+    tipoExpBody.alignment = {
+      vertical: 'middle',
+      horizontal: 'left',
+      wrapText: true,
+      indent: 1,
+    };
+    tipoSheet.getRow(5).height = 20;
+    tipoSheet.getRow(6).height = 20;
+    tipoSheet.getRow(7).height = 20;
+
+    for (let r = 4; r <= 7; r++) {
+      for (let c = 2; c <= 3; c++) {
+        tipoSheet.getRow(r).getCell(c).border = thinBorder;
+      }
+    }
+
+    // Encabezado de la tabla: TIPO DE RIESGO | PONDERACIÓN (Fondo negro, letras blancas)
+    const tipoTableHeaderRow = tipoSheet.getRow(9);
+    tipoTableHeaderRow.height = 34;
+
+    const thTipo = tipoTableHeaderRow.getCell(2);
+    thTipo.value = 'TIPO DE RIESGO';
+    const thPond = tipoTableHeaderRow.getCell(3);
+    thPond.value = 'PONDERACIÓN';
+
+    [thTipo, thPond].forEach((cell) => {
+      cell.font = {
+        name: 'Calibri',
+        size: 13,
+        bold: true,
+        color: { argb: 'FFFFFFFF' },
+      };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF000000' },
+      };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border = boxBorder;
+    });
+
+    // Filas de la tabla de categorización de Tipo de Riesgo
+    const categoriasTipoRiesgo = [
+      { tipo: 'MARGINAL', ponderacion: '1 A 2', bgColor: 'FF70AD47' },
+      { tipo: 'APRECIABLE', ponderacion: '3 a 8', bgColor: 'FFFFFF00' },
+      { tipo: 'IMPORTANTE', ponderacion: '9 a 14', bgColor: 'FFFF6600' },
+      { tipo: 'MUY GRAVE', ponderacion: '15 a 25', bgColor: 'FFFF0000' },
+    ];
+
+    categoriasTipoRiesgo.forEach((cat, idx) => {
+      const rIdx = 10 + idx; // Filas 10 a 13
+      const row = tipoSheet.getRow(rIdx);
+      row.height = 28;
+
+      const cellTipo = row.getCell(2);
+      cellTipo.value = cat.tipo;
+      cellTipo.font = {
+        name: 'Calibri',
+        size: 13,
+        bold: true,
+        color: { argb: 'FF000000' },
+      };
+      cellTipo.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFFFFF' },
+      };
+      cellTipo.alignment = { vertical: 'middle', horizontal: 'center' };
+      cellTipo.border = boxBorder;
+
+      const cellPond = row.getCell(3);
+      cellPond.value = cat.ponderacion;
+      cellPond.font = {
+        name: 'Calibri',
+        size: 13,
+        bold: true,
+        color: { argb: 'FF000000' },
+      };
+      cellPond.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: cat.bgColor },
+      };
+      cellPond.alignment = { vertical: 'middle', horizontal: 'center' };
+      cellPond.border = boxBorder;
     });
 
     res.setHeader(
